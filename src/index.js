@@ -5,7 +5,7 @@ import { AuSelectCustomAttribute } from './au-select-custom-attribute';
 
 const logger = LogManager.getLogger('polymer');
 
-function registerElement(eventManager, bindingLanguage, prototype) {
+function registerElementV1(eventManager, bindingLanguage, prototype) {
   let propertyConfig = {'bind-value': ['change', 'input']}; // Not explicitly listed for all elements that use it
 
   function handleProp(propName, prop) {
@@ -39,6 +39,49 @@ function registerElement(eventManager, bindingLanguage, prototype) {
   });
 }
 
+function handleV1() {
+  let registrations = Polymer.telemetry.registrations;
+  registrations.forEach(prototype => registerElementV1(eventManager, bindingLanguage, prototype));
+
+  let oldRegistrate = Polymer.telemetry._registrate.bind(Polymer.telemetry);
+
+  Polymer.telemetry._registrate = prototype => {
+    oldRegistrate(prototype);
+    registerElementV1(eventManager, bindingLanguage, prototype);
+  };
+}
+
+function registerElementV2(eventManager, bindingLanguage, prototype) {
+  var propertyConfig = { 'bind-value': ['change', 'input'] };
+
+  if (prototype.__notifyEffects) {
+    Object.keys(prototype.__notifyEffects).forEach(function (propName) {
+      propertyConfig[propName] = [propName + '-changed', 'change', 'input'];
+    });
+  }
+
+  logger.debug('Registering configuration for Polymer element ["' + prototype.is + ']');
+
+  eventManager.registerElementConfig({
+    tagName: prototype.constructor.is,
+    properties: propertyConfig
+  });
+}
+
+function handleV2() {
+  var registrations = Polymer.telemetry.registrations;
+  registrations.forEach(prototype => {
+    return registerElementV2(eventManager, bindingLanguage, prototype);
+  });
+
+  var oldRegistrate = Polymer.telemetry.register.bind(Polymer.telemetry);
+
+  Polymer.telemetry.register = function (prototype) {
+    oldRegistrate(prototype);
+    registerElementV2(eventManager, bindingLanguage, prototype);
+  };
+}
+
 export function configure(aurelia) {
   logger.info('Initializing aurelia-polymer');
 
@@ -57,13 +100,9 @@ export function configure(aurelia) {
 
   logger.debug('Performing initial Polymer binding');
 
-  let registrations = Polymer.telemetry.registrations;
-  registrations.forEach(prototype => registerElement(eventManager, bindingLanguage, prototype));
-
-  let oldRegistrate = Polymer.telemetry._registrate.bind(Polymer.telemetry);
-
-  Polymer.telemetry._registrate = prototype => {
-    oldRegistrate(prototype);
-    registerElement(eventManager, bindingLanguage, prototype);
-  };
+  if (Polymer.version.substr(1) === '1') {
+    handleV1();
+  } else {
+    handleV2();
+  }
 }
